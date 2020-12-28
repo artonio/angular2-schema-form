@@ -4,6 +4,8 @@ import { PROPERTY_TYPE_MAPPING } from './typemapping';
 import {SchemaValidatorFactory} from '../schemavalidatorfactory';
 import {ValidatorRegistry} from './validatorregistry';
 import { ExpressionCompilerFactory } from '../expression-compiler-factory';
+import {ISchema} from './ISchema';
+import { LogService } from '../log.service';
 
 export class ArrayProperty extends PropertyGroup {
 
@@ -11,10 +13,11 @@ export class ArrayProperty extends PropertyGroup {
               schemaValidatorFactory: SchemaValidatorFactory,
               validatorRegistry: ValidatorRegistry,
               expressionCompilerFactory: ExpressionCompilerFactory,
-              schema: any,
+              schema: ISchema,
               parent: PropertyGroup,
-              path: string) {
-    super(schemaValidatorFactory, validatorRegistry, expressionCompilerFactory, schema, parent, path);
+              path: string,
+              logger: LogService) {
+    super(schemaValidatorFactory, validatorRegistry, expressionCompilerFactory, schema, parent, path, logger);
   }
 
   addItem(value: any = null): FormProperty {
@@ -24,7 +27,19 @@ export class ArrayProperty extends PropertyGroup {
   }
 
   private addProperty() {
-    let newProperty = this.formPropertyFactory.createProperty(this.schema.items, this);
+    let itemSchema = this.schema.items
+    if (Array.isArray(this.schema.items)) {
+      const itemSchemas = this.schema.items as object[]
+      if (itemSchemas.length > (<FormProperty[]>this.properties).length) {
+        itemSchema = itemSchema[(<FormProperty[]>this.properties).length]
+      } else if (this.schema.additionalItems) {
+        itemSchema = this.schema.additionalItems
+      } else {
+        // souldn't add new items since schema is undefined for the item at its position
+        return null
+      }
+    }
+    let newProperty = this.formPropertyFactory.createProperty(itemSchema, this);
     (<FormProperty[]>this.properties).push(newProperty);
     return newProperty;
   }
@@ -84,11 +99,12 @@ PROPERTY_TYPE_MAPPING.array = (
     schemaValidatorFactory: SchemaValidatorFactory,
     validatorRegistry: ValidatorRegistry,
     expressionCompilerFactory: ExpressionCompilerFactory,
-    schema: any,
+    schema: ISchema,
     parent: PropertyGroup,
     path: string,
     formPropertyFactory: FormPropertyFactory,
+    logger: LogService
 ) => {
     return new ArrayProperty(
-        formPropertyFactory, schemaValidatorFactory, validatorRegistry, expressionCompilerFactory, schema, parent, path);
+        formPropertyFactory, schemaValidatorFactory, validatorRegistry, expressionCompilerFactory, schema, parent, path, logger);
 };

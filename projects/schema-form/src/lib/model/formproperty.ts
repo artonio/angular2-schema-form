@@ -5,6 +5,8 @@ import {SchemaValidatorFactory} from '../schemavalidatorfactory';
 import {ValidatorRegistry} from './validatorregistry';
 import {PropertyBindingRegistry} from '../property-binding-registry';
 import { ExpressionCompilerFactory, ExpressionCompilerVisibilityIf } from '../expression-compiler-factory';
+import {ISchema} from './ISchema';
+import { LogService } from '../log.service';
 
 export abstract class FormProperty {
   public schemaValidator: Function;
@@ -58,9 +60,10 @@ export abstract class FormProperty {
   constructor(schemaValidatorFactory: SchemaValidatorFactory,
               private validatorRegistry: ValidatorRegistry,
               expressionCompilerFactory: ExpressionCompilerFactory,
-              public schema: any,
+              public schema: ISchema,
               parent: PropertyGroup,
-              path: string) {
+              path: string,
+              protected logger: LogService) {
     this.schemaValidator = schemaValidatorFactory.createValidatorFn(this.schema);
     this.expressionCompilerVisibiltyIf = expressionCompilerFactory.createExpressionCompilerVisibilityIf();
 
@@ -224,46 +227,57 @@ export abstract class FormProperty {
 
   /**
    * Making use of the expression compiler for the <code>visibleIf</code> condition
+   * @param sourceProperty The source property where the `visibleIf` condition is set.
+   * @param targetProperty  The target property what provided the `value` on which the `visibleIf` condition will be checked against. May be `null` or `undefined`
+   * @param dependencyPath The dependency path of the `targetProperty`
+   * @param value The value of the `targetProperty` to check the `visiblityIf` condintion against. May be `null` or `undefined`
+   * @param expression The value or expression to check against the `value` for the `targetProperty`. May be `null` or `undefined`
    */
   private __evaluateVisibilityIf(
     sourceProperty: FormProperty,
     targetProperty: FormProperty,
     dependencyPath: string,
     value: any = '',
-    expression: string|string[]|number = ''): boolean {
+    expression: string | string[] | number | number[] | boolean | boolean[]): boolean {
     try {
       let valid = false
-      if (isNaN(expression as number) && (expression as string).indexOf('$ANY$') !== -1) {
-        valid = value && value.length > 0;
-      } else if ((expression||[]).toString().indexOf('$EXP$') === 0) {
-        // since visibleIf condition values are an array... we must do this
-        const expArray = Array.isArray(expression) ? expression : (expression ? [expression] : [])
-        for (const expString of expArray) {
+      const expArray = Array.isArray(expression) ? expression : [expression]
+      for (const expString of expArray) {
+        if (typeof expString === 'boolean') {
+          valid = !expString ? !value : value
+        } else if (typeof expString === 'number') {
+          valid = !!value ? `${expString}` === `${value}` : false;
+        } else if (-1 !== `${expString}`.indexOf('$ANY$')) {
+          valid = value && value.length > 0;
+        } else if (0 === `${expString}`.indexOf('$EXP$')) {
           const _expresssion = (expString as string).substring('$EXP$'.length);
           valid = true === this.expressionCompilerVisibiltyIf.evaluate(_expresssion, {
             source: sourceProperty,
             target: targetProperty
           })
-          if (valid) {
-            break
-          }
+        } else {
+          valid = !!value ? `${expString}` === `${value}` : false;
         }
-      } else {
-        valid = !!value ? expression.toString() === value : false;
-
+        if (valid) {
+          break
+        }
       }
       return valid
     } catch (error) {
-      console.error('Error processing "VisibileIf" expression for path: ', dependencyPath,
-        `source - ${sourceProperty._canonicalPath}: `, sourceProperty,
-        `target - ${targetProperty._canonicalPath}: `, targetProperty,
+      this.logger.error('Error processing "VisibileIf" expression for path: ', dependencyPath,
+        `source - ${(sourceProperty ? sourceProperty._canonicalPath : '<no-sourceProperty>')}: `, sourceProperty,
+        `target - ${(targetProperty ? targetProperty._canonicalPath : '<no-targetProperty>')}: `, targetProperty,
         'value:', value,
         'expression: ', expression,
         'error: ', error)
     }
   }
 
-  private __bindVisibility(): boolean {
+  /**
+   * binds visibility conditions of type `oneOf` and `allOf`.
+   * @returns `true` if any visibility binding of type `oneOf` or `allOf` has been processed. Otherwise `false`.
+   */
+  private __bindVisibility_oneOf_or_allOf(): boolean {
     /**
      * <pre>
      *     "oneOf":[{
@@ -296,15 +310,25 @@ export abstract class FormProperty {
                   if (property) {
                     let valueCheck;
                     if (this.schema.visibleIf.oneOf) {
-                      valueCheck = property.valueChanges.pipe(map(
-                        value => this.__evaluateVisibilityIf(this, property, dependencyPath, value, visibleIf[dependencyPath])
-                      ));
+                      const _chk = (value) => {
+                        for (const item of this.schema.visibleIf.oneOf) {
+                          for (const depPath of Object.keys(item)) {
+                            const prop = this.searchProperty(depPath);
+                            const propVal = prop ? prop.value : null;
+                            if (this.__evaluateVisibilityIf(this, prop, dependencyPath, propVal, item[depPath])) {
+                              return true
+                            }
+                          }
+                        }
+                        return false;
+                      };
+                      valueCheck = property.valueChanges.pipe(map(_chk));
                     } else if (this.schema.visibleIf.allOf) {
                       const _chk = (value) => {
                         for (const item of this.schema.visibleIf.allOf) {
                           for (const depPath of Object.keys(item)) {
                             const prop = this.searchProperty(depPath);
-                            const propVal = prop.value;
+                            const propVal = prop ? prop.value : null;
                             if (!this.__evaluateVisibilityIf(this, prop, dependencyPath, propVal, item[depPath])) {
                               return false;
                             }
@@ -320,7 +344,7 @@ export abstract class FormProperty {
                   }
                 }
               } else {
-                console.warn('Can\'t find property ' + dependencyPath + ' for visibility check of ' + this.path);
+                this.logger.warn('Can\'t find property ' + dependencyPath + ' for visibility check of ' + this.path);
                 this.registerMissingVisibilityBinding(dependencyPath, this);
                 // not visible if not existent
                 this.setVisible(false);
@@ -329,8 +353,11 @@ export abstract class FormProperty {
           }
 
           combineLatest(propertiesBinding, (...values: boolean[]) => {
+            if (this.schema.visibleIf.allOf) {
+              return values.indexOf(false) === -1;
+            }
             return values.indexOf(true) !== -1;
-          }).pipe(distinctUntilChanged()).subscribe((visible) => {
+          }).subscribe((visible) => {
             this.setVisible(visible);
           });
         }
@@ -341,7 +368,7 @@ export abstract class FormProperty {
 
   // A field is visible if AT LEAST ONE of the properties it depends on is visible AND has a value in the list
   public _bindVisibility() {
-    if (this.__bindVisibility())
+    if (this.__bindVisibility_oneOf_or_allOf())
       return;
     let visibleIf = this.schema.visibleIf;
     if (typeof visibleIf === 'object' && Object.keys(visibleIf).length === 0) {
@@ -363,7 +390,7 @@ export abstract class FormProperty {
               }
             }
           } else {
-            console.warn('Can\'t find property ' + dependencyPath + ' for visibility check of ' + this.path);
+            this.logger.warn('Can\'t find property ' + dependencyPath + ' for visibility check of ' + this.path);
             this.registerMissingVisibilityBinding(dependencyPath, this);
             // not visible if not existent
             this.setVisible(false);
@@ -463,108 +490,8 @@ export abstract class PropertyGroup extends FormProperty {
      */
     this._properties = new Proxy(properties, this._propertyProxyHandler);
   }
-
-  private _propertyProxyHandler: ProxyHandler<FormProperty[] | { [key: string]: FormProperty }> = {
-    /**
-     * When a new item is added it will be checked for visibility updates to proceed <br/>
-     * if any other field has a binding reference to it.<br/>
-     */
-    set(target: FormProperty[] | { [p: string]: FormProperty }, p: PropertyKey, value: any, receiver: any): boolean {
-
-      /**
-       * 1) Make sure a canonical path is set
-       */
-      const assertCanonicalPath = (propertyValue: any) => {
-        const formProperty = propertyValue as FormProperty;
-        if (Array.isArray(target) && propertyValue instanceof FormProperty) {
-          /**
-           * Create a canonical path replacing the last '*' with the elements position in array
-           * @param propertyPath
-           * @param indexOfChild
-           */
-          const getCanonicalPath = (propertyPath: string, indexOfChild: number) => {
-            let pos;
-            if (propertyPath && -1 !== (pos = propertyPath.lastIndexOf('*'))) {
-              return propertyPath.substring(0, pos) + indexOfChild.toString() + propertyPath.substring(pos + 1);
-            }
-          };
-          if (formProperty) {
-            formProperty._canonicalPath = getCanonicalPath(formProperty._canonicalPath, p as number);
-          }
-        }
-
-        const propertyGroup = formProperty as PropertyGroup;
-        const propertyGroupChildren = (Array.isArray(propertyGroup.properties) ?
-          propertyGroup.properties :
-          Object.values(propertyGroup.properties || {})) as FormProperty[];
-        if ((formProperty.path || '').endsWith('/*')) {
-          /**
-           * If it is an array, then all children canonical paths must be computed now.
-           * The children don't have the parent's path segment set yet,
-           * because they are created before the parent gets attached to its parent.
-           */
-          for (const child of propertyGroupChildren) {
-            child._canonicalPath = formProperty._canonicalPath + child._canonicalPath.substring(formProperty.path.length);
-          }
-        }
-        return {property: formProperty, children: propertyGroupChildren};
-      };
-      const {property, children} = assertCanonicalPath(value);
-
-      /**
-       * 2) Add the new property before rebinding, so it can be found by <code>_bindVisibility</code>
-       */
-      const result = target[p as string] = value;
-
-      /**
-       * 3) Re-bind the visibility bindings referencing to this canonical paths
-       */
-      const rebindVisibility = () => {
-        const rebindAll = [property].concat(children);
-        const findPropertiesToRebind = (formProperty: FormProperty) => {
-          const propertyBindings = formProperty._propertyBindingRegistry.getPropertyBindingsVisibility();
-          let rebind: string[] = [];
-          if (formProperty._canonicalPath) {
-            rebind = rebind.concat(rebind.concat(propertyBindings.findByDependencyPath(formProperty._canonicalPath) || []));
-            if (formProperty._canonicalPath.startsWith('/')) {
-              rebind = rebind.concat(rebind.concat(propertyBindings.findByDependencyPath(formProperty._canonicalPath.substring(1)) || []));
-            }
-          }
-          rebind = rebind.concat(propertyBindings.findByDependencyPath(formProperty.path) || []);
-          if (formProperty.path.startsWith('/')) {
-            rebind = rebind.concat(rebind.concat(propertyBindings.findByDependencyPath(formProperty.path.substring(1)) || []));
-          }
-          const uniqueValues = {};
-          for (const item of rebind) {
-            uniqueValues[item] = item;
-          }
-          return Object.keys(uniqueValues);
-        };
-        for (const _property of rebindAll) {
-          if (_property instanceof FormProperty) {
-            try {
-              const rebindPaths = findPropertiesToRebind(_property);
-              for (const rebindPropPath of rebindPaths) {
-                const rebindProp = _property.searchProperty(rebindPropPath);
-                rebindProp._bindVisibility();
-              }
-            } catch (e) {
-              console.error('Rebinding visibility error at path:', _property.path, 'property:', _property, e);
-            }
-          }
-        }
-      };
-      rebindVisibility();
-
-      return result;
-    },
-    get(target: FormProperty[] | { [p: string]: FormProperty }, p: PropertyKey, receiver: any): any {
-      return target[p as string];
-    },
-    deleteProperty(target: FormProperty[] | { [p: string]: FormProperty }, p: PropertyKey): boolean {
-      return delete target[p as string];
-    }
-  };
+  
+  private _propertyProxyHandler = new ExtendedProxyHandler(this.logger)
 
   getProperty(path: string) {
     let subPathIdx = path.indexOf('/');
@@ -613,3 +540,109 @@ export abstract class PropertyGroup extends FormProperty {
 }
 
 
+export class ExtendedProxyHandler implements ProxyHandler<FormProperty[] | { [key: string]: FormProperty }> {
+  constructor(private logger: LogService) { }
+  /**
+   * When a new item is added it will be checked for visibility updates to proceed <br/>
+   * if any other field has a binding reference to it.<br/>
+   */
+  set(target: FormProperty[] | { [p: string]: FormProperty }, p: PropertyKey, value: any, receiver: any): boolean {
+
+    /**
+     * 1) Make sure a canonical path is set
+     */
+    const assertCanonicalPath = (propertyValue: any) => {
+      const formProperty = propertyValue as FormProperty;
+      if (Array.isArray(target) && propertyValue instanceof FormProperty) {
+        /**
+         * Create a canonical path replacing the last '*' with the elements position in array
+         * @param propertyPath
+         * @param indexOfChild
+         */
+        const getCanonicalPath = (propertyPath: string, indexOfChild: number) => {
+          let pos;
+          if (propertyPath && -1 !== (pos = propertyPath.lastIndexOf('*'))) {
+            return propertyPath.substring(0, pos) + indexOfChild.toString() + propertyPath.substring(pos + 1);
+          }
+        };
+        if (formProperty) {
+          formProperty._canonicalPath = getCanonicalPath(formProperty._canonicalPath, p as number);
+        }
+      }
+
+      const propertyGroup = formProperty as PropertyGroup;
+      const propertyGroupChildren = (Array.isArray(propertyGroup.properties) ?
+        propertyGroup.properties :
+        Object.values(propertyGroup.properties || {})) as FormProperty[];
+      if ((formProperty.path || '').endsWith('/*')) {
+        /**
+         * If it is an array, then all children canonical paths must be computed now.
+         * The children don't have the parent's path segment set yet,
+         * because they are created before the parent gets attached to its parent.
+         */
+        for (const child of propertyGroupChildren) {
+          child._canonicalPath = formProperty._canonicalPath + child._canonicalPath.substring(formProperty.path.length);
+        }
+      }
+      return { property: formProperty, children: propertyGroupChildren };
+    };
+    const { property, children } = assertCanonicalPath(value);
+
+    /**
+     * 2) Add the new property before rebinding, so it can be found by <code>_bindVisibility</code>
+     */
+    const result = target[p as string] = value;
+
+    /**
+     * 3) Re-bind the visibility bindings referencing to this canonical paths
+     */
+    const rebindVisibility = () => {
+      const rebindAll = [property].concat(children);
+      const findPropertiesToRebind = (formProperty: FormProperty) => {
+        const propertyBindings = formProperty._propertyBindingRegistry.getPropertyBindingsVisibility();
+        let rebind: string[] = [];
+        if (formProperty._canonicalPath) {
+          rebind = rebind.concat(rebind.concat(propertyBindings.findByDependencyPath(formProperty._canonicalPath) || []));
+          if (formProperty._canonicalPath.startsWith('/')) {
+            rebind = rebind.concat(rebind.concat(propertyBindings.findByDependencyPath(formProperty._canonicalPath.substring(1)) || []));
+          }
+        }
+        rebind = rebind.concat(propertyBindings.findByDependencyPath(formProperty.path) || []);
+        if (formProperty.path.startsWith('/')) {
+          rebind = rebind.concat(rebind.concat(propertyBindings.findByDependencyPath(formProperty.path.substring(1)) || []));
+        }
+        const uniqueValues = {};
+        for (const item of rebind) {
+          uniqueValues[item] = item;
+        }
+        return Object.keys(uniqueValues);
+      };
+      for (const _property of rebindAll) {
+        if (_property instanceof FormProperty) {
+          try {
+            const rebindPaths = findPropertiesToRebind(_property);
+            for (const rebindPropPath of rebindPaths) {
+              const rebindProp = _property.searchProperty(rebindPropPath);
+              if (!rebindProp) {
+                this.logger.warn('Can\'t find property to rebind visibility at path:', _property.path, 'property:', _property);
+              } else {
+                rebindProp._bindVisibility();
+              }
+            }
+          } catch (e) {
+            this.logger.error('Rebinding visibility error at path:', _property.path, 'property:', _property, e);
+          }
+        }
+      }
+    };
+    rebindVisibility();
+
+    return result;
+  }
+  get(target: FormProperty[] | { [p: string]: FormProperty }, p: PropertyKey, receiver: any): any {
+    return target[p as string];
+  }
+  deleteProperty(target: FormProperty[] | { [p: string]: FormProperty }, p: PropertyKey): boolean {
+    return delete target[p as string];
+  }
+}

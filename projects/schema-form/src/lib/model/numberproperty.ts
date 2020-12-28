@@ -3,6 +3,8 @@ import { ValidatorRegistry, PropertyGroup } from '.';
 import { ExpressionCompilerFactory } from '../expression-compiler-factory';
 import { SchemaValidatorFactory } from '../schemavalidatorfactory';
 import { PROPERTY_TYPE_MAPPING } from './typemapping';
+import {ISchema} from './ISchema';
+import { LogService } from '../log.service';
 
 export class NumberProperty extends AtomicProperty {
 
@@ -27,20 +29,22 @@ PROPERTY_TYPE_MAPPING.integer = (
     schemaValidatorFactory: SchemaValidatorFactory,
     validatorRegistry: ValidatorRegistry,
     expressionCompilerFactory: ExpressionCompilerFactory,
-    schema: any,
+    schema: ISchema,
     parent: PropertyGroup,
-    path: string
+    path: string,
+    logger: LogService
 ) => {
-    return new NumberProperty(schemaValidatorFactory, validatorRegistry, expressionCompilerFactory, schema, parent, path);
+    return new NumberProperty(schemaValidatorFactory, validatorRegistry, expressionCompilerFactory, schema, parent, path, logger);
 };
 
  PROPERTY_TYPE_MAPPING.number = (
     schemaValidatorFactory: SchemaValidatorFactory,
     validatorRegistry: ValidatorRegistry,
     expressionCompilerFactory: ExpressionCompilerFactory,
-    schema: any,
+    schema: ISchema,
     parent: PropertyGroup,
-    path: string
+    path: string,
+    logger: LogService
 ) => {
-    return new NumberProperty(schemaValidatorFactory, validatorRegistry, expressionCompilerFactory, schema, parent, path);
+    return new NumberProperty(schemaValidatorFactory, validatorRegistry, expressionCompilerFactory, schema, parent, path, logger);
 };

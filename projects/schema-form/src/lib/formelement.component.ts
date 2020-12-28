@@ -14,6 +14,7 @@ import {ActionRegistry} from './model/actionregistry';
 import {FormProperty} from './model/formproperty';
 import {BindingRegistry} from './model/bindingregistry';
 import {Binding} from './model/binding';
+import { LogService } from './log.service';
 
 @Component({
   selector: 'sf-form-element',
@@ -44,7 +45,8 @@ export class FormElementComponent implements OnInit, OnDestroy {
   constructor(private actionRegistry: ActionRegistry,
               private bindingRegistry: BindingRegistry,
               private renderer: Renderer2,
-              private elementRef: ElementRef) {
+              private elementRef: ElementRef,
+              private logger: LogService) {
   }
 
   ngOnInit() {
@@ -63,14 +65,17 @@ export class FormElementComponent implements OnInit, OnDestroy {
     }
   }
 
-  private createBinding(eventId, listener) {
+  private createBinding(eventId, listeners) {
     this.unlisten.push(this.renderer.listen(this.elementRef.nativeElement,
       eventId,
       (event) => {
-        if (listener instanceof Function) {
-          listener(event, this.formProperty);
-        } else {
-          console.warn('Calling non function handler for eventId ' + eventId + ' for path ' + this.formProperty.path);
+        const _listeners = Array.isArray(listeners) ? listeners : [listeners]
+        for (const _listener of _listeners) {
+          if (_listener instanceof Function) {
+            try { _listener(event, this.formProperty); } catch (e) { this.logger.error(`Error calling bindings event listener for '${eventId}'`, e) }
+          } else {
+            this.logger.warn('Calling non function handler for eventId ' + eventId + ' for path ' + this.formProperty.path);
+          }
         }
       }));
   }

@@ -15,6 +15,7 @@ export {
   BindingRegistry,
   FormPropertyFactory,
   FormProperty,
+  PropertyGroup,
   AtomicProperty,
   ObjectProperty,  
   ArrayProperty,
@@ -24,11 +25,28 @@ export {
   Validator,
   ValidatorRegistry,
   SchemaPreprocessor,
+  // <schema def>
+  IButton,
+  IFieldSet,
+  IOneOf,
+  IProperties,
+  ISchema,
+  IWidget
+  // </schema def>
 } from './lib/model';
 export {
   SchemaValidatorFactory,
   ZSchemaValidatorFactory
 } from './lib/schemavalidatorfactory';
+export { 
+  ExpressionCompilerFactory, 
+  ExpressionCompiler, 
+  ExpressionCompilerVisibilityIf, 
+  ExpressionContextVisibilitIf,
+  JEXLExpressionCompilerFactory,
+  JEXLExpressionCompiler,
+  JEXLExpressionCompilerVisibiltyIf
+} from './lib/expression-compiler-factory';
 export { WidgetFactory } from './lib/widgetfactory';
 export { TerminatorService } from './lib/terminator.service';
 export {
@@ -58,3 +76,4 @@ export { SchemaFormModule } from './lib/schema-form.module';
 export {
   TemplateSchemaModule
 } from './lib/template-schema/template-schema.module';
+export { LogService, LogLevel, LOG_LEVEL } from './lib/log.service';

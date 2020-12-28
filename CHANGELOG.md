@@ -1,3 +1,39 @@
+# 2.5.11 (2020-12-03)
+- fix #373: missing schemaprocessor implementation
+
+# 2.5.10 (2020-12-03)
+- fix #373: add support for array items with different schema definitions
+
+# 2.5.9 (2020-12-03)
+- fix #370: handle non existing fields in visibleIf - oneOf and allOf as null value.
+
+# 2.5.8 (2020-11-12)
+- fix #367: Fix boolean negative visiblityIf condition. Add array support for $EXP$ as visibilityIf condition.
+
+# 2.5.7 (2020-08-17)
+
+- fix #360: VisibleIf-oneOf with 2+ conditions has same property name is not working (daniele-pecora)
+- fix #331: visibleIf stopped working in 2.5.2 (daniele-pecora)
+- fix #329: visibleIf "allOf" Edge case BUG (daniele-pecora)
+
+# 2.5.6 (2020-07-16)
+- Fix #358 Completing Public API
+
+# 2.5.5 (2020-07-16)
+- Fix #355 add README in dist
+
+# 2.5.4 (2020-07-13)
+
+- Log service (daniele-pecora)
+- Allow custom properties in schema (daniele-pecora)
+- Fix #338 bindings not supporting multiple event functions (daniele-pecora)
+- Fix: visibleIf returns turn even if only part of the value matches the expression (compare number to string fix)
+
+# 2.5.3 (2020-06-02)
+
+- Add extendable TypeScript interfaces for JSON Schema objects (artonio)
+
+
 # 2.5.2 (2020-04-09)
 
 - Fix: visibleIf returns turn even if only part of the value matches the expression

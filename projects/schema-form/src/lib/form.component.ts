@@ -24,9 +24,11 @@ import {WidgetFactory} from './widgetfactory';
 import {TerminatorService} from './terminator.service';
 import {PropertyBindingRegistry} from './property-binding-registry';
 import { ExpressionCompilerFactory } from './expression-compiler-factory';
+import {ISchema} from './model/ISchema';
+import { LogService } from './log.service';
 
-export function useFactory(schemaValidatorFactory, validatorRegistry, propertyBindingRegistry, expressionCompilerFactory) {
-  return new FormPropertyFactory(schemaValidatorFactory, validatorRegistry, propertyBindingRegistry, expressionCompilerFactory);
+export function useFactory(schemaValidatorFactory, validatorRegistry, propertyBindingRegistry, expressionCompilerFactory, logService) {
+  return new FormPropertyFactory(schemaValidatorFactory, validatorRegistry, propertyBindingRegistry, expressionCompilerFactory, logService);
 }
 
 @Component({
@@ -45,7 +47,7 @@ export function useFactory(schemaValidatorFactory, validatorRegistry, propertyBi
     {
       provide: FormPropertyFactory,
       useFactory: useFactory,
-      deps: [SchemaValidatorFactory, ValidatorRegistry, PropertyBindingRegistry, ExpressionCompilerFactory]
+      deps: [SchemaValidatorFactory, ValidatorRegistry, PropertyBindingRegistry, ExpressionCompilerFactory, LogService]
     },
     TerminatorService,
     {
@@ -57,7 +59,7 @@ export function useFactory(schemaValidatorFactory, validatorRegistry, propertyBi
 })
 export class FormComponent implements OnChanges, ControlValueAccessor {
 
-  @Input() schema: any = null;
+  @Input() schema: ISchema | null = null;
 
   @Input() model: any;
 
